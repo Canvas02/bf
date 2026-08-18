@@ -35,21 +35,20 @@ impl Instruction {
 
 pub struct Program {
     program: Vec<Instruction>,
-    jump_map: Vec<usize>,
-    stack: [u8; 1024 * 60],
-    sp: usize, // stack pinter
-
-    pc: usize, // program counter
 }
 
 impl Program {
-    pub fn new(program_source: &[u8]) -> ProgramResult<Self> {
+    pub fn new(program_source: &[u8]) -> Self {
         let program = Instruction::from_bytes(program_source);
 
-        let mut jump_map = vec![0usize; program.len()];
+        Self { program }
+    }
+
+    pub fn interpret(&self) -> ProgramResult<()> {
+        let mut jump_map = vec![0usize; self.program.len()];
         let mut start_stack: Vec<usize> = vec![];
 
-        for (i, inst) in program.iter().enumerate() {
+        for (i, inst) in self.program.iter().enumerate() {
             match inst {
                 Instruction::JumpForward => start_stack.push(i),
                 Instruction::JumpBackward => {
@@ -66,47 +65,33 @@ impl Program {
         if !start_stack.is_empty() {
             return Err(ProgramError::BadLoopStackReference);
         }
+        let mut stack = [0u8; 1024 * 60];
+        let mut sp = 0usize;
+        let mut pc = 0usize;
 
-        Ok(Self {
-            program,
-            jump_map,
-            stack: [0u8; _],
-            sp: 0,
-
-            pc: 0, // program counter
-        })
-    }
-
-    pub fn interpret(mut self) -> ProgramResult<()> {
-        while self.pc < self.program.len() {
-            match self.program[self.pc] {
-                Instruction::Add(x) => {
-                    self.stack[self.sp] = self.stack[self.sp].wrapping_add(x as u8)
-                }
-                Instruction::Sub(x) => {
-                    self.stack[self.sp] = self.stack[self.sp].wrapping_sub(x as u8)
-                }
+        while pc < self.program.len() {
+            match self.program[pc] {
+                Instruction::Add(x) => stack[sp] = stack[sp].wrapping_add(x as u8),
+                Instruction::Sub(x) => stack[sp] = stack[sp].wrapping_sub(x as u8),
 
                 Instruction::MoveRight(x) => {
-                    self.sp = self
-                        .sp
+                    sp = sp
                         .checked_add(x)
-                        .filter(|&new_sp| new_sp < self.stack.len())
+                        .filter(|&new_sp| new_sp < stack.len())
                         .ok_or(ProgramError::TapePointerOutOfBounds)?;
                 }
                 Instruction::MoveLeft(x) => {
-                    self.sp = self
-                        .sp
+                    sp = sp
                         .checked_sub(x)
                         .ok_or(ProgramError::TapePointerOutOfBounds)?;
                 }
 
                 Instruction::Print(x) => {
                     for _ in 0..x {
-                        if self.stack[self.sp] >= 32 && self.stack[self.sp] <= 126 {
-                            print!("{}", self.stack[self.sp] as char)
+                        if stack[sp] >= 32 && stack[sp] <= 126 {
+                            print!("{}", stack[sp] as char)
                         } else {
-                            print!("{}", self.stack[self.sp])
+                            print!("{}", stack[sp])
                         }
                     }
                 }
@@ -119,26 +104,26 @@ impl Program {
 
                     let buf = buf.trim(); // Remove trailing new line
 
-                    self.stack[self.sp] =
-                        if !buf.is_empty() && buf.chars().all(|c| char::is_ascii_digit(&c)) {
-                            buf.parse::<u8>()?
-                        } else {
-                            // If empty throws error, else gets first char
-                            *buf.as_bytes().first().ok_or(ProgramError::EmptyInput)?
-                        }
+                    stack[sp] = if !buf.is_empty() && buf.chars().all(|c| char::is_ascii_digit(&c))
+                    {
+                        buf.parse::<u8>()?
+                    } else {
+                        // If empty throws error, else gets first char
+                        *buf.as_bytes().first().ok_or(ProgramError::EmptyInput)?
+                    }
                 }
                 Instruction::JumpForward => {
-                    if self.stack[self.sp] == 0 {
-                        self.pc = self.jump_map[self.pc];
+                    if stack[sp] == 0 {
+                        pc = jump_map[pc];
                     }
                 }
                 Instruction::JumpBackward => {
-                    if self.stack[self.sp] != 0 {
-                        self.pc = self.jump_map[self.pc];
+                    if stack[sp] != 0 {
+                        pc = jump_map[pc];
                     }
                 }
             }
-            self.pc += 1;
+            pc += 1;
         }
 
         println!();
@@ -244,7 +229,7 @@ impl Program {
     pub fn compiler(&self) -> String {
         let mut s = "".to_owned();
         s.push_str(Self::prelude());
-        let mut pc = self.pc;
+        let mut pc = 0;
         while pc < self.program.len() {
             match self.program[pc] {
                 Instruction::Add(x) => s += &format!("stack[sp] += {};\n", x),
