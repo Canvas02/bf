@@ -1,7 +1,3 @@
-#![allow(unused)]
-
-use std::collections::VecDeque;
-
 use crate::program::Program;
 
 mod program;
@@ -16,7 +12,7 @@ fn main() {
     }
 
     let program_source = std::fs::read_to_string(&args[1]).unwrap();
-    let mut program = Program::new(program_source.as_bytes()).unwrap();
+    let program = Program::new(program_source.as_bytes()).unwrap();
 
     let source_file_name_raw = args[1].to_string();
     let source_file_name = std::path::Path::new(&source_file_name_raw)
